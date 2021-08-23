@@ -1,0 +1,593 @@
+---
+title: "DDK"
+output: 
+  html_document: 
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+    df_print: paged
+---
+  
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, include=FALSE}
+library("rlang")
+library("dplyr")
+library("tidyr")
+library("stringr")
+library("ggplot2")
+```
+
+# Load data
+```{r load}
+setwd("C:/Users/45598770/Desktop/analyse")
+
+ctrl <- read.csv("CTRLsheet_LL.csv", encoding="UTF-8",stringsAsFactors = T)
+pd <- read.csv("PDsheet_LL.csv", encoding="UTF-8",stringsAsFactors = T)
+
+ctrl <- cbind(group = "typical", ctrl)
+pd <- cbind(group = "PD", pd)
+
+df <- rbind(ctrl, pd)
+rm(ctrl, pd)
+
+df <- df %>%
+  separate(fname, c("project", "prompt", "block", "remove", "remove2", "trialno", "repetition"), sep = "_") %>%
+  mutate(trial=str_c(trialno,repetition)) %>%
+  select(!c("repetitions", "X", "project", "remove", "remove2", "trialno", "repetition", "outl", "yGONS",   "yPVEL",    "yNONS",    "yMAXC",    "yNOFFS",   "yPVEL2",   "yGOFFS", "vGONS",    "vNONS",    "vMAXC",    "vNOFFS", "vGOFFS"))
+
+# set variables to numeric
+df <- df %>% 
+ mutate_at(vars(!1:7), as.character) %>%
+ mutate_at(vars(!1:7), as.numeric) %>% # produces errors which is OK
+ mutate_at(vars(1:7), as.factor) 
+
+# remove PD24 because of Parkinsonism diagnosis
+df <- df[!df$subj == "PD 24 P",]
+df$subj <- droplevels(df$subj)
+
+df <- rename(df, peakvel2target = vPVEL)
+    
+```
+
+# Data wrangling
+
+Merge trialnumber and repetition
+```{r}
+# get rid of space in subj variable
+df$subj <- str_replace_all(df$subj, fixed(" "), "")
+df$subj <- as.factor(df$subj)
+
+trialno <- df %>% 
+group_by(subj) %>% 
+distinct(trial) %>% 
+arrange(trial, by_group = TRUE) %>%
+mutate(recording.no = 1:n()) %>% 
+select(recording.no, everything()) %>% 
+arrange(subj, recording.no)
+
+# convert trial variable into first, second, third etc.
+trial <- df %>%
+  group_by(subj) %>%
+  distinct(trial) %>% 
+  arrange(trial, by_group = TRUE) %>%
+  mutate(trial.no = 1:n()) %>% 
+  arrange(subj, trial.no)
+
+# merge 
+df <- df %>% 
+  inner_join(trial, by = c("subj", "trial")) %>% 
+  arrange(subj, trial.no)
+rm(trial)
+
+# add repetition numbers
+df <- df %>%
+  group_by(subj, trial) %>%
+  mutate(rep.no = 1:n())
+```
+
+Checks
+```{r}
+table(df$subj, df$seg)
+table(df$seg, df$traj)
+
+table(df$subj, df$trial.no)
+
+```
+
+Remove outliers
+```{r}
+# df <- df[!(df$subj == "PD06" & df$trial == "13201"),] # first reps extremely slow
+# df <- df[!(df$subj == "CTRL14" & df$trial == "13201"),] # first reps extremely slow
+# df <- df[!(df$subj == "CTRL11" & df$trial == "13201"),] # first trial, reps extremely slow
+df <- df[!df$subj == "CTRL21",] # lengthens the vowel and has a weird prosodic structure
+# df <- df[!df$sub == "CTRL 15",] # extremely slow
+df <- df[!(df$subj == "PD17" & df$trial == "13701"),] # misreading prompt
+df <- df[!(df$subj == "PD17" & df$trial == "14801"),] # subj laughing during trial
+df <- df[!(df$subj == "PD09" & df$trial == "13201"),] # task isn't clear to subj
+df <- df[!(df$subj == "PD14" & df$trial == "13801"),] # no clear gestures
+df <- df[!(df$subj == "CTRL03" & df$trial == "13901"),] # prosodic
+df <- df[!(df$subj == "CTRL21" & df$trial == "13501"),] # prosodic
+df <- df[!(df$subj == "CTRL15"),] # prosodic
+df <- df[!(df$subj == "CTRL14" & df$trial == "13501"),] # prosodic
+df <- df[!(df$subj == "CTRL22" & df$trial == "13701"),] # slipping of tongue
+df <- df[!(df$subj == "PD01" & df$trial == "13801"),] # can't segment gestures
+df <- df[!(df$subj == "PD01" & df$trial == "14901"),] # can't segment gestures
+df <- df[!(df$subj == "CTRL11" & df$trial == "13501"),] # too much noise
+df <- df[!(df$subj == "CTRL11" & df$trial == "13601"),] # too much noise
+df <- df[!(df$subj == "CTRL11" & df$trial == "14701"),] # too much noise
+df <- df[!(df$subj == "CTRL11" & df$trial == "14801"),] # too much noise
+df <- df[!(df$subj == "CTRL11" & df$trial == "14901"),] # too much noise
+df <- df[!(df$subj == "PD20"),] # too much noise
+df <- df[!(df$subj == "CTRL13" & df$trial == "15001"),] # sensor loose
+df <- df[!(df$subj == "CTRL13" & df$trial == "14701"),] # sensor loose
+df <- df[!(df$subj == "CTRL13" & df$trial == "13301"),] # sensor loose
+df <- df[!(df$subj == "PD23" & df$seg == "K"),] # sensor loose
+df <- df[!(df$subj == "PD23" & df$seg == "T"),] # sensor loose
+df <- df[!(df$subj == "CTRL24" & df$seg == "K"),] # sensor loose
+
+
+# CTRL15, PD07, PD08, PD10 are extremely slow
+```
+
+
+
+```{r}
+# gestural duration
+df$dur <- df$tGOFFS-df$tGONS
+
+# duration of acceleration phase
+df$dur.accphase <- df$tPVEL-df$tGONS
+
+df <- df %>%
+    group_by(subj, trial) %>%
+    mutate(syl.dur = tGONS-lag(tGONS)) %>%
+    ungroup()
+
+# duration of deceleration phase
+df$dur.decphase <- df$tMAXC-df$tPVEL
+
+# calculate displacement from GONS to MAXC
+df <- df %>%
+  group_by(subj, trial, rep.no) %>%
+  mutate(dist2target = sqrt( (xGONS - xMAXC)^2 + (zGONS- zMAXC)^2 )) %>%
+  mutate(MAXC_GOFFS_disp = sqrt( (xGOFFS - xMAXC)^2 + (zGOFFS- zMAXC)^2 )) %>%
+  ungroup() %>%
+  group_by(subj, trial) %>%
+  mutate(mean.dist2target = mean(dist2target)) %>%
+  mutate(interval.disp = lag(MAXC_GOFFS_disp) + dist2target) %>%
+  ungroup()
+  
+# calculate time from GONS to MAXC
+df <- df %>%
+  group_by(subj, trial, rep.no) %>%
+  mutate(time2target = tMAXC - tGONS) %>%
+  ungroup()
+
+# calculate time entire gesture
+df <- df %>%
+    mutate(gest.dur = tGOFFS - tGONS) %>%
+  ungroup()
+
+# calculate average gest.dur
+df <- df %>%
+    group_by(subj, trial) %>%
+    mutate(mean.gest.dur = mean(gest.dur, na.rm = T)) %>%
+  ungroup()
+
+# calculate speed2target
+df <- df %>%
+  group_by(subj, trial, rep.no) %>%
+  mutate(speed2target = dist2target/time2target) %>%
+  ungroup()
+
+# proportional duration
+df <- df %>%
+  group_by(subj, trial) %>%
+  mutate(prop.dur = (tGOFFS - tGONS)/(lead(tGONS)-tGONS)) %>%
+  ungroup()
+
+# calculate stiffness2target
+df <- df %>%
+  group_by(subj, trial, rep.no) %>%
+  mutate(stiffness2target = peakvel2target / dist2target) %>%
+  ungroup()
+
+
+
+# count repetitions
+df <- df %>% 
+  group_by(subj, trial) %>% 
+  mutate(rep = n()) %>%
+    ungroup()
+
+# count repetitions
+df <- df %>% 
+  group_by(subj, trial) %>% 
+  mutate(rep = n()) %>%
+  ungroup()
+
+# calculate euclidean distances and time lag between successive repetitions
+
+df <- df %>%
+  group_by(subj, trial) %>%
+  mutate(dist2previous = sqrt((xMAXC - lag(xMAXC))^2 + (zMAXC - lag(zMAXC))^2)) %>% # calculate euclidean distances
+  mutate(dist2previous_height = abs((zMAXC - lag(zMAXC)))) %>% 
+  mutate(time.between.targets = tMAXC - lag(tMAXC)) %>% # calculate lag
+  mutate(mean.time.between.targets = mean(time.between.targets, na.rm = T)) %>% #calculate average per trial
+  mutate(pace = 1000/mean.time.between.targets) %>% #calculate pace
+  mutate(gestural.interval.duration = (lag(tGOFFS) - lag(tMAXC))+(tMAXC-tGONS)) %>% # calculate and sum gestural duration
+  mutate(interval.velocity = interval.disp/gestural.interval.duration) %>% 
+  mutate(temp_var = sd(time.between.targets, na.rm = T)) %>%
+  ungroup()
+
+
+# calculate euclidean distances to centroid of point cloud, and variability within the cloud
+df <- df %>%
+  group_by(subj, seg, trial) %>%
+  mutate(xMean = mean(xMAXC), zMean = mean(zMAXC)) %>% 
+  mutate(dist2centroid = sqrt((zMAXC - zMean)^2 + (xMAXC - xMean)^2 )) %>%
+  mutate(spat_var_bivariate = sqrt(sum(dist2centroid^2)/(n()-1))) %>%
+  mutate(spat_var = sd(dist2centroid)) %>%
+  ungroup()
+
+
+setwd("C:/Users/45598770/Desktop/analyse")
+
+
+# sanity check centroid
+p  <- ggplot(subset(df,  subj == "CTRL01" & trial == "13701")) + geom_point(aes(x=xMAXC, y=zMAXC))
+p + geom_point(aes(x=xMean, y=zMean), color="red", size=5)
+
+p  <- ggplot(subset(df,  subj == "CTRL06" & trial == "13501")) + geom_point(aes(x=xMAXC, y=zMAXC))
+p + geom_point(aes(x=xMean, y=zMean), color="red", size=5)
+
+p  <- ggplot(subset(df,  subj == "CTRL07" & trial == "13501")) + geom_point(aes(x=xMAXC, y=zMAXC))
+p + geom_point(aes(x=xMean, y=zMean), color="red", size=5)
+df$dist2centroid[df$subj == "CTRL07" & df$trial == "13501"]
+
+p  <- ggplot(subset(df,  subj == "CTRL07" & trial == "13601")) + geom_point(aes(x=xMAXC, y=zMAXC))
+p + geom_point(aes(x=xMean, y=zMean), color="red", size=5)
+rm(p)
+
+
+
+# calculate averages
+df <- df %>%
+  group_by(subj, trial) %>%
+  mutate(mean.peakvel2target = mean(peakvel2target)) %>%
+  mutate(mean.time2target = mean(time2target, na.rm = T)) %>%
+  mutate(mean.dist2target = mean(dist2target, na.rm = T)) %>%
+  mutate(mean.speed2target = mean(speed2target, na.rm = T)) %>%
+  mutate(mean.stiffness2target = mean(stiffness2target, na.rm = T)) %>%
+  mutate(mean.dist2centroid = mean(dist2centroid, na.rm = T)) %>%
+  ungroup() 
+```
+
+
+Check measures of BPM
+```{r}
+
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+df <- df %>%
+  group_by(subj,trial) %>%
+  mutate(mode.time.between.targets = getmode(round(time.between.targets, digits = 1))) %>%
+  mutate(median.time.between.targets = median(time.between.targets, na.rm =T))
+
+
+ggplot(df[df$subj == "CTRL01" & df$trial.no == 2,], aes(x = time.between.targets)) + geom_histogram(binwidth = 6) + geom_vline(aes(xintercept=mean.time.between.targets), color = "blue") + geom_vline(aes(xintercept=mode.time.between.targets), color = "red") + geom_vline(aes(xintercept=median.time.between.targets), color = "green")
+
+ggplot(df[df$subj == "CTRL05" & df$trial.no == 2,], aes(x = time.between.targets)) + geom_histogram(binwidth = 6) + geom_vline(aes(xintercept=mean.time.between.targets), color = "blue") + geom_vline(aes(xintercept=mode.time.between.targets), color = "red") + geom_vline(aes(xintercept=median.time.between.targets), color = "green")
+
+ggplot(df[df$subj == "CTRL10" & df$trial.no == 2,], aes(x = time.between.targets)) + geom_histogram(binwidth = 6) + geom_vline(aes(xintercept=mean.time.between.targets), color = "blue") + geom_vline(aes(xintercept=mode.time.between.targets), color = "red") + geom_vline(aes(xintercept=median.time.between.targets), color = "green")
+
+ggplot(df[df$subj == "CTRL16" & df$trial.no == 2,], aes(x = time.between.targets)) + geom_histogram(binwidth = 6) + geom_vline(aes(xintercept=mean.time.between.targets), color = "blue") + geom_vline(aes(xintercept=mode.time.between.targets), color = "red") + geom_vline(aes(xintercept=median.time.between.targets), color = "green")
+
+ggplot(df[df$subj == "CTRL22" & df$trial.no == 2,], aes(x = time.between.targets)) + geom_histogram(binwidth = 6) + geom_vline(aes(xintercept=mean.time.between.targets), color = "blue") + geom_vline(aes(xintercept=mode.time.between.targets), color = "red") + geom_vline(aes(xintercept=median.time.between.targets), color = "green")
+
+ggplot(df[df$subj == "PD01" & df$trial.no == 2,], aes(x = time.between.targets)) + geom_histogram(binwidth = 6) + geom_vline(aes(xintercept=mean.time.between.targets), color = "blue") + geom_vline(aes(xintercept=mode.time.between.targets), color = "red") + geom_vline(aes(xintercept=median.time.between.targets), color = "green")
+
+ggplot(df[df$subj == "PD05" & df$trial.no == 2,], aes(x = time.between.targets)) + geom_histogram(binwidth = 6) + geom_vline(aes(xintercept=mean.time.between.targets), color = "blue") + geom_vline(aes(xintercept=mode.time.between.targets), color = "red") + geom_vline(aes(xintercept=median.time.between.targets), color = "green")
+
+ggplot(df[df$subj == "PD10" & df$trial.no == 2,], aes(x = time.between.targets)) + geom_histogram(binwidth = 6) + geom_vline(aes(xintercept=mean.time.between.targets), color = "blue") + geom_vline(aes(xintercept=mode.time.between.targets), color = "red") + geom_vline(aes(xintercept=median.time.between.targets), color = "green")
+
+ggplot(df[df$subj == "PD15" & df$trial.no == 2,], aes(x = time.between.targets)) + geom_histogram(binwidth = 6) + geom_vline(aes(xintercept=mean.time.between.targets), color = "blue") + geom_vline(aes(xintercept=mode.time.between.targets), color = "red") + geom_vline(aes(xintercept=median.time.between.targets), color = "green")
+
+ggplot(df[df$subj == "PD21" & df$trial.no == 2,], aes(x = time.between.targets)) + geom_histogram(binwidth = 6) + geom_vline(aes(xintercept=mean.time.between.targets), color = "blue") + geom_vline(aes(xintercept=mode.time.between.targets), color = "red") + geom_vline(aes(xintercept=median.time.between.targets), color = "green")
+
+```
+
+
+Retrieve syllable rate
+```{r}
+# retrieve number of rep per trial
+df <- df %>%
+  group_by(subj,trial) %>%
+  mutate(no.reps = n())
+
+
+# remove < 2 repetition trials
+df <- df[df$no.reps > 2,]
+
+
+df <- df %>%
+  group_by(subj, trial) %>%
+  mutate(time2previous = tGONS - lag(tGONS)) %>% 
+  ungroup()
+
+# select only first and last rep
+df_lim <-df %>%
+  group_by(subj,trial) %>%
+  slice(c(1, n())) %>%
+  mutate(whichRep = if_else(row_number() == 1, 'first', 'last') ) %>%
+  ungroup()
+
+# retrieve GONS of first rep
+start <- df_lim %>%
+  group_by(subj,trial) %>%
+  filter(whichRep == "first") %>%
+  rename(start = tGONS) %>%
+  select(subj,trial,start) %>%
+  ungroup()
+
+# retrieve GOFFS of final rep and merge with GONS
+rep.dur <- df_lim %>%
+  group_by(subj,trial) %>%
+  filter(whichRep == "last") %>%
+  rename(end = tGOFFS) %>%
+  select(subj,trial,end) %>%
+  inner_join(start, by=c("subj","trial")) %>%
+  select(subj, trial, start, end) %>%
+  ungroup()
+  
+# merge
+df <- df %>%
+ right_join(rep.dur, by = c("subj","trial")) %>%
+  group_by(subj,trial) %>%
+  mutate(mean.syl.dur = mean(syl.dur, na.rm = T)) %>%
+  mutate(mean.rep.dur = ((end - start)/n())) %>%
+  ungroup()
+
+rm(df_lim, rep.dur, start)
+
+```
+
+Fitts's law:
+```{r}
+df$ID <- log2((df$dist2target/df$spat_var_bivariate)+1)
+```
+
+
+Set order of columns
+```{r}
+df <- df %>%
+  select(subj, group, block, trial, trial.no, rep.no, seg, traj, note, temp_var, spat_var_bivariate, syl.dur, gest.dur, dist2target, ID, peakvel2target, time2target, speed2target, dur.accphase, dur.decphase, dist2previous, dist2centroid, time.between.targets, stiffness2target, ID, everything())
+```
+
+# Speech rate
+
+## Examining speech rate by looking at mean duration of a repetition in every trial
+```{r}
+ggplot(df[df$block == "DDK1" & df$prompt == "PA",], aes(x=subj, y=mean.rep.dur, color=group)) + geom_boxplot() + labs(title="mean duration /pa/ repetition block 1", y="duration (ms)", x="Subject") + theme_bw()  
+ggplot(df[df$block == "DDK2" & df$prompt == "PA",], aes(x=subj, y=mean.rep.dur, color=group)) + geom_boxplot() + labs(title="mean duration /pa/ repetition block 2", y="duration (ms)", x="Subject") + theme_bw()  
+
+
+ggplot(df[df$block == "DDK1" & df$prompt == "TA",], aes(x=subj, y=mean.rep.dur, color=group)) + geom_boxplot() + labs(title="mean duration /ta/ repetition block 1", y="duration (ms)", x="Subject") + theme_bw()  
+ggplot(df[df$block == "DDK2" & df$prompt == "TA",], aes(x=subj, y=mean.rep.dur, color=group)) + geom_boxplot() + labs(title="mean duration /ta/ repetition block 2", y="duration (ms)", x="Subject") + theme_bw()  
+
+
+ggplot(df[df$block == "DDK1" & df$prompt == "KA",], aes(x=subj, y=mean.rep.dur, color=group)) + geom_boxplot() + labs(title="mean duration /ka/ repetition block 1", y="duration (ms)", x="Subject") + theme_bw() 
+ggplot(df[df$block == "DDK2" & df$prompt == "KA",], aes(x=subj, y=mean.rep.dur, color=group)) + geom_boxplot() + labs(title="mean duration /ka/ repetition block 2", y="duration (ms)", x="Subject") + theme_bw()  
+
+```
+
+## Remove outliers
+```{r}
+# remove first trial of every pp
+df <- subset(df, trial.no != 1)
+
+dropPA1 <- boxplot(df$mean.rep.dur[df$prompt == "PA" & df$block == "DDK1"], plot = FALSE)$out
+dropTA1 <- boxplot(df$mean.rep.dur[df$prompt == "TA" & df$block == "DDK1"], plot = FALSE)$out
+dropKA1  <- boxplot(df$mean.rep.dur[df$prompt == "KA" & df$block == "DDK1"], plot = FALSE)$out
+
+dropPA2  <- boxplot(df$mean.rep.dur[df$prompt == "PA" & df$block == "DDK2"], plot = FALSE)$out
+dropTA2 <- boxplot(df$mean.rep.dur[df$prompt == "TA" & df$block == "DDK2"], plot = FALSE)$out
+dropKA2  <- boxplot(df$mean.rep.dur[df$prompt == "KA" & df$block == "DDK2"], plot = FALSE)$out
+
+
+cleanPA <- df %>%
+   filter(prompt == "PA") %>%
+   filter(!mean.rep.dur %in% dropPA1) %>%
+   filter(!mean.rep.dur %in% dropPA2) 
+
+cleanTA <- df %>%
+   filter(prompt == "TA") %>%
+   filter(!mean.rep.dur %in% dropTA1) %>%
+   filter(!mean.rep.dur %in% dropTA2) 
+
+
+cleanKA <- df %>%
+   filter(prompt == "KA") %>%
+   filter(!mean.rep.dur %in% dropKA1) %>%
+   filter(!mean.rep.dur %in% dropKA2)
+
+df <- rbind(cleanPA, cleanTA, cleanKA)
+rm(dropPA1, dropPA2, dropTA1, dropTA2, dropKA1, dropKA2, cleanPA, cleanTA, cleanKA)
+
+
+ggplot(df[df$block == "DDK1" & df$prompt == "PA",], aes(x=subj, y=mean.rep.dur, color=group)) + geom_boxplot() + labs(title="mean duration /pa/ repetition block 1 (outliers removed)", y="duration (ms)", x="Subject") + theme_bw()  
+ggplot(df[df$block == "DDK2" & df$prompt == "PA",], aes(x=subj, y=mean.rep.dur, color=group)) + geom_boxplot() + labs(title="mean duration /pa/ repetition block 2 (outliers removed)", y="duration (ms)", x="Subject") + theme_bw()  
+
+ggplot(df[df$block == "DDK1" & df$prompt == "KA",], aes(x=subj, y=mean.rep.dur, color=group)) + geom_boxplot() + labs(title="mean duration /ka/ repetition block 1 (outliers removed)", y="duration (ms)", x="Subject") + theme_bw()  
+ggplot(df[df$block == "DDK2" & df$prompt == "KA",], aes(x=subj, y=mean.rep.dur, color=group)) + geom_boxplot() + labs(title="mean duration /ka/ repetition block 2 (outliers removed)", y="duration (ms)", x="Subject") + theme_bw()  
+
+
+ggplot(df[df$block == "DDK1" & df$prompt == "TA",], aes(x=subj, y=mean.rep.dur, color=group)) + geom_boxplot() + labs(title="mean duration /ta/ repetition block 1 (outliers removed)", y="duration (ms)", x="Subject") + theme_bw()  
+ggplot(df[df$block == "DDK2" & df$prompt == "TA",], aes(x=subj, y=mean.rep.dur, color=group)) + geom_boxplot() + labs(title="mean duration /ta/ repetition block 2 (outliers removed)", y="duration (ms)", x="Subject") + theme_bw()  
+```
+
+# Variation around centroid
+
+
+## /pa/
+```{r}
+ggplot(df[df$block == "DDK1" & df$prompt == "PA",], aes(x=subj, y=dist2centroid, color=group)) + geom_boxplot() + labs(title="Distance to center of cloud in /pa/ block 1", y="Euclidian distance (mm)", x="Subject") + theme_bw()  
+ggplot(df[df$block == "DDK2" & df$prompt == "PA",], aes(x=subj, y=dist2centroid, color=group)) + geom_boxplot() + labs(title="Distance to center of cloud in /pa/ block 2", y="Euclidian distance (mm)", x="Subject") + theme_bw()  
+```
+
+
+## /ta/
+```{r}
+ggplot(df[df$block == "DDK1" & df$prompt == "TA",], aes(x=subj, y=dist2centroid, color=group)) + geom_boxplot() + labs(title="Distance to center of cloud in /ta/ block 1", y="Euclidian distance (mm)", x="Subject") + theme_bw()  
+ggplot(df[df$block == "DDK2" & df$prompt == "TA",], aes(x=subj, y=dist2centroid, color=group)) + geom_boxplot() + labs(title="Distance to center of cloud in /ta/ block 2", y="Euclidian distance (mm)", x="Subject") + theme_bw()  
+```
+
+
+## /ka/
+```{r}
+ggplot(df[df$block == "DDK1" & df$prompt == "KA",], aes(x=subj, y=dist2centroid, color=group)) + geom_boxplot() + labs(title="Distance to center of cloud in /ka/ block 1", y="Euclidian distance (mm)", x="Subject") + theme_bw()  
+ggplot(df[df$block == "DDK2" & df$prompt == "KA",], aes(x=subj, y=dist2centroid, color=group)) + geom_boxplot() + labs(title="Distance to center of cloud in /ka/ block 2", y="Euclidian distance (mm)", x="Subject") + theme_bw()  
+```
+
+## Checks
+```{r}
+
+# low spatial variability
+p  <- ggplot(subset(df,  subj == "PD06" & trial == "13401")) + geom_point(aes(x=xMAXC, y=zMAXC)) + labs(title = "low spatial variability") + theme_bw() 
+p + geom_point(aes(x=xMean, y=zMean), color="red", size=5)
+
+# high spatial variability
+p  <- ggplot(subset(df,  subj == "PD17" & trial == "13301")) + geom_point(aes(x=xMAXC, y=zMAXC)) + labs(title = "high spatial variability") + theme_bw() 
+p + geom_point(aes(x=xMean, y=zMean), color="red", size=5)
+
+
+dfPD17 <- subset(df, subj == "PD17" & trial == "13301")
+ggplot() + 
+geom_point(data=dfPD17, aes(x=xMAXC, y=zMAXC)) + 
+geom_point(data=dfPD17, aes(x=xMean, y=zMean), color='red', size=5) +
+  geom_point(data = palPD17, aes(x=x, y=y))
+
+dfPD06 <- subset(df, subj == "PD06" & trial == "13401")
+ggplot() + 
+geom_point(data=dfPD06, aes(x=xMAXC, y=zMAXC)) + 
+geom_point(data=dfPD06, aes(x=xMean, y=zMean), color='red', size=5) +
+  geom_point(data = palPD17, aes(x=x, y=y))
+
+
+setwd("C:/Users/45598770/Desktop/analyse")
+
+palPD17 <- read.csv("pal_PD17_R.txt")
+colnames(palPD17) <- c("x", "del", "y")
+palPD17 <- palPD17 %>% select(x, y)
+ggplot(palPD17, aes(x=x, y=y)) + geom_point()
+
+```
+
+# Displacement between successive repetitions
+
+
+## /pa/
+```{r}
+ggplot(df[df$block == "DDK1" & df$prompt == "PA",], aes(x=subj, y=dist2previous, color=group)) + geom_boxplot() + labs(title="Distance between successive repetitions in /pa/ block 1", y="Euclidian distance (mm)", x="Subject") + theme_bw()  
+ggplot(df[df$block == "DDK2" & df$prompt == "PA",], aes(x=subj, y=dist2previous, color=group)) + geom_boxplot() + labs(title="Distance between successive repetitions in /pa/ block 2", y="Euclidian distance (mm)", x="Subject") + theme_bw()  
+```
+
+
+## /ta/
+```{r}
+ggplot(df[df$block == "DDK1" & df$prompt == "TA",], aes(x=subj, y=dist2previous, color=group)) + geom_boxplot() + labs(title="Distance between successive repetitions in /ta/ block 1", y="Euclidian distance (mm)", x="Subject") + theme_bw()  
+ggplot(df[df$block == "DDK2" & df$prompt == "TA",], aes(x=subj, y=dist2previous, color=group)) + geom_boxplot() + labs(title="Distance between successive repetitions in /ta/ block 2", y="Euclidian distance (mm)", x="Subject") + theme_bw()
+```
+
+
+## /ka/
+```{r}
+ggplot(df[df$block == "DDK1" & df$prompt == "KA",], aes(x=subj, y=dist2previous, color=group)) + geom_boxplot() + labs(title="Distance between successive repetitions in in /ka/ block 1", y="Euclidian distance (mm)", x="Subject") + theme_bw()   
+ggplot(df[df$block == "DDK2" & df$prompt == "KA",], aes(x=subj, y=dist2previous, color=group)) + geom_boxplot() + labs(title="Distance between successive repetitions in in /ka/ block 2", y="Euclidian distance (mm)", x="Subject") + theme_bw()  
+```
+
+## Checks
+```{r}
+# low diff
+ggplot(subset(df,  subj == "PD22" & trial == "13801"), aes(x=tMAXC, y=dist2previous)) + geom_point() + labs(title = "low diff", x = "time", y = "displacement")  + ylim(0,6) + theme_bw() 
+
+ggplot(subset(df,  subj == "CTRL22" & trial == "13701"), aes(x=tMAXC, y=dist2previous)) + geom_point() + labs(title = "high diff", x = "time", y = "displacement") + ylim(0,6) + theme_bw() 
+```
+
+# Temporal stability
+
+## /pa/
+```{r}
+ggplot(df[df$block == "DDK1" & df$prompt == "PA",], aes(x=subj, y=temp_var, color=group)) + geom_boxplot() + labs(title="Temporal stability block 1 /pa/", y="Variability", x="Subject") + theme_bw()
+ggplot(df[df$block == "DDK2" & df$prompt == "PA",], aes(x=subj, y=temp_var, color=group)) + geom_boxplot() + labs(title="Temporal stability block 2 /pa/", y="Variability", x="Subject") + theme_bw()
+```
+
+
+## /ta/
+```{r}
+ggplot(df[df$block == "DDK1" & df$prompt == "TA",], aes(x=subj, y=temp_var, color=group)) + geom_boxplot() + labs(title="Temporal stability /ta/ block 1", y="Variability", x="Subject") + theme_bw()
+ggplot(df[df$block == "DDK2" & df$prompt == "TA",], aes(x=subj, y=temp_var, color=group)) + geom_boxplot() + labs(title="Temporal stability /ta/ block 2", y="Variability", x="Subject") + theme_bw()
+```
+
+
+
+## /ka/
+```{r}
+ggplot(df[df$block == "DDK1" & df$prompt == "KA",], aes(x=subj, y=temp_var, color=group)) + geom_boxplot() + labs(title="Temporal stability /ka/ block 1", y="Variability", x="Subject") + theme_bw()
+ggplot(df[df$block == "DDK2" & df$prompt == "KA",], aes(x=subj, y=temp_var, color=group)) + geom_boxplot() + labs(title="Temporal stability /ka/ block 2", y="Variability", x="Subject") + theme_bw()
+```
+
+## Checks
+```{r}
+ggplot(subset(df,  subj == "CTRL09" & trial == "13901"), aes(x=tMAXC, y=1)) + geom_point() + labs(title = "low variability", x = "time") + theme_bw() 
+
+ggplot(subset(df,  subj == "CTRL03" & trial == "13701"), aes(x=tMAXC, y=1)) + geom_point() + labs(title = "high variability", x = "time") + theme_bw() 
+```
+
+# Add variables
+Add a little to every value to be able to fit with gamma distribution:
+```{r}
+df$dist2previous2 <- df$dist2previous + min(df$dist2previous[df$dist2previous > 0], na.rm=T) # add a little to all values
+df$dist2centroid2 <- df$dist2centroid + min(df$dist2centroid[df$dist2centroid > 0], na.rm=T) # add a little to all values
+
+```
+
+
+Create new factor based on lingual/labial:
+```{r}
+df$gesture.type <- ifelse(df$seg == "P", "labial", "lingual")
+df$gesture.type <- as.factor(df$gesture.type)
+```
+
+# Count trials
+```{r}
+df.count <- df %>% distinct(subj, trial)
+```
+
+# Save data
+```{r}
+setwd("C:/Users/45598770/Desktop/analyse")
+
+df$block <- as.factor(df$block)
+df_meta <- read.csv("metadata.csv", header = TRUE, sep = ",")
+df_meta$gender <- as.factor(df_meta$gender)
+df <-  merge(df, df_meta, by="subj")
+df$diagnosis[df$group == "typical"] <- 0
+df$total_UPDRS[df$group == "typical"] <- 0
+df$motor_UPDRS[df$group == "typical"] <- 0
+df$tremor[df$group == "typical"] <- 0
+df$akinetic[df$group == "typical"] <- 0
+
+
+saveRDS(df, file = "modelling_data_DDK.rds")
+```
+
+

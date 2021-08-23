@@ -1,0 +1,600 @@
+---
+title: "Fitts's law"
+output: 
+  html_document: 
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+    df_print: paged
+---
+
+  
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Summary
+Fitts's law states that there's a trade-off between speed and accuracy. It is expressed by the formula ***MT = a + b x ID***, where a and b are constants depending on the task and ID is the index of difficulty. ID is determined by the formula ***ID = log2(A+1/W)***, where A is the amplitude and W is the width of the target. In this analyse we examine if there's a difference between typical and PD speakers when it comes to Fitts's law. In this analysis, MT is the time2target.
+
+
+
+```{r, echo=FALSE, out.width="100%"}
+knitr::include_graphics("C:/Users/45598770/Desktop/analyse/gesture_DDK_schematic.png")
+```
+
+
+
+# List of factors
+Factor                          | Description
+--------------------------------|-------------- 
+**time2target (MT in Fitts's law)**               | the time from GONS to MAXC
+**ID**                          | the index of difficulty
+**pace**        | average number of repetitions per second across the trial
+**trial.no**                    | trial number in the experiment
+**rep.no**                      | repetition number within the trial, ranging from 1 to 10
+
+```{r packages, include=FALSE}
+library("mgcv")
+library("itsadug")
+library("ggplot2")
+library("ggcorrplot")
+library("dplyr")
+library("visreg")
+```
+
+
+# Load data
+```{r load-data}
+setwd("C:/Users/45598770/Desktop/analyse")
+df <- readRDS("modelling_data_DDK.rds")
+
+df$seg <- relevel(df$seg, "P")
+df <- df[order(df$subj, df$trial, df$rep.no),]
+```
+
+
+
+Get rid of outlier:
+```{r outlier}
+#df <- ~df %>% subset(!subj == "PD09")
+```
+
+
+Create ordered factors:
+```{r ordered-factors}
+df$groupO <- as.ordered(df$group)
+contrasts(df$groupO) <-"contr.treatment"
+
+df$segO <- as.ordered(df$seg)
+contrasts(df$segO) <-"contr.treatment"
+```
+
+Create binary predictors to check interactions:
+```{r binary}
+df$IsPD <- with(df,  ifelse(group=="PD", 1, 0)) # create binary predictor
+```
+
+Some plots:
+```{r density-plots}
+ggplot(df, aes(x=time2target, fill = group)) + 
+  geom_density(size = 0, alpha=0.6) + theme_classic() +labs(x="time2target") + scale_fill_manual(values=c("#e37249", "#66916a"))
+
+ggplot(df, aes(x=ID, fill = group)) + 
+  geom_density(size = 0, alpha=0.6) +labs(x="ID") + theme_classic() + scale_fill_manual(values=c("#e37249", "#66916a"))
+```
+
+# Hypothesis testing 
+
+Check Fitts's law
+```{r fitts, cache = T}
+summary(m.Fitts <- bam(time2target ~ s(ID) + s(ID, subj, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+We see evidence for Fitts's law, when ID increases, also time to target increases.
+
+Visualize:
+```{r plot-fitts, cache = T}
+plot_smooth(m.Fitts, view = "ID", main = "Fitts's law")
+```
+
+Is there a difference between typical and PD speakers? (hypothesized model)
+```{r hypo, cache = T}
+summary(m.hypo <- bam(time2target ~ groupO + s(ID) + s(ID, by = groupO) + s(ID, subj, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+No.
+
+Check assumptions:
+```{r check}
+gam.check(m.hypo)
+```
+Looks like it needs a log transform.
+
+```{r hypo-gamma, cache = T}
+summary(m.hypo_gamma <- bam(time2target ~ groupO + s(ID) + s(ID, by = groupO) + s(ID, subj, bs='fs', m =1), family = Gamma(link=log), data = df, discrete = T, nthreads = 10))
+```
+Fit with gamma distribution:
+
+Check once more:
+```{r check-gamma}
+gam.check(m.hypo_gamma)
+```
+Doesn't help.
+
+Model criticism, trimming:
+```{r criticism-trim}
+df2 <- df[abs(scale(resid(m.hypo))) < 2.5, ] # trim model
+(1 - (nrow(df2))/nrow(df)) * 100
+```
+
+Refit using trimmed data:
+```{r hypo-trim, cache = T}
+summary(m.hypotrim <- bam(time2target ~ groupO + s(ID) + s(ID, by = groupO) + s(ID, subj, bs='fs', m =1), data = df2, discrete = T, nthreads = 10))
+```
+
+Check trimmed model:
+```{r check-trim}
+gam.check(m.hypotrim)
+```
+Much better.
+
+Plot:
+```{r plot-hypo}
+plot_smooth(m.hypotrim, view="ID", rug=F, ylab = "MT (ms)", xlab = "ID")
+```
+
+# Exploratory analysis
+
+Fit hypothesis model, though without the separate smooths over ID, using ML for subsequent analysis:
+```{r hypoML, cache = T}
+summary(m.hypoML <- bam(time2target ~ groupO + s(ID) + s(ID, subj, bs='fs', m =1), data = df, method = "ML"))
+```
+
+
+Add segO?
+```{r m0, cache = T}
+summary(m0 <- bam(time2target ~ segO + groupO + s(ID) + s(ID, subj, bs='fs', m = 1), data = df, method = "ML"))
+compareML(m.hypoML, m0)
+```
+Yes. 
+
+Include random smooth per segment?
+```{r m0smooth, cache = T}
+summary(m0smooth <- bam(time2target ~ segO + groupO + s(ID) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+Yes.
+
+Add pace (number of repetitions per second, based on the mean) or median measure:
+```{r m.syllable-duration, cache = T}
+summary(m.pace <- bam(time2target ~ segO + groupO + s(pace) + s(ID) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1), data = df, select = T, discrete = T, nthreads = 10))
+
+summary(m.median <- bam(time2target ~ segO + groupO + s(median.time.between.targets) + s(ID) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1), data = df, select = T, discrete = T, nthreads = 10))
+
+compareML(m.pace, m.median)
+```
+Pace model has lowest AIC, so we continue with that model.
+
+Add random smooth over pace for each segment?
+```{r m3, cache = T}
+summary(m3 <- bam(time2target ~ segO  + groupO + s(pace) + s(ID) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+Yes.
+
+Visualize:
+```{r m3-visualize}
+plot(m3, select = 1, shade = T)
+abline(h=0)
+```
+
+An increase in pace leads to a lower time2target/MT, as expected.
+
+Separate smooths over pace for each group:
+```{r m4, cache = T}
+summary(m4 <- bam(time2target ~ segO  + groupO + s(pace) + s(pace, by = groupO) + s(ID) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+No.
+
+
+Add the interaction between pace and ID:
+```{r m5, cache = T}
+summary(m5 <- bam(time2target ~ segO  + groupO + te(pace, ID) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+Yes.
+
+Visualize:
+```{r plot-m5}
+fvisgam(m5, view=c("pace","ID"), rm.ranef=TRUE)
+```
+
+Only the smooth without the intercept:
+```{r without intercept plot-m5}
+pvisgam(m5, view=c("pace","ID"), select=1)
+```
+
+
+
+By group:
+```{r m6, cache = T}
+summary(m6 <- bam(time2target ~ segO  + groupO + te(pace, ID) + te(pace, ID, by = groupO) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+No.
+
+
+Add the interaction between pace and ID as a ti?
+```{r m7, cache = T}
+summary(m7 <- bam(time2target ~ segO  + groupO + s(pace) + s(ID) + ti(pace, ID) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+No.
+
+
+Check if there's a group difference:
+```{r m8, cache = T}
+summary(m8 <- bam(time2target ~ segO  + groupO + s(pace) + s(ID) + ti(pace, ID) +ti(pace, ID, by = groupO) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+No.
+
+
+Add repetition number?
+```{r m10, cache = T}
+summary(m10 <- bam(time2target ~ s(rep.no, k= 9) + segO  + groupO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+Yes.
+
+Random smooths over rep.no?
+```{r m10sm, cache = T}
+summary(m10smooths <- bam(time2target ~ s(rep.no, k= 9) + segO  + groupO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+Yes and rep.no is still significant.
+
+Visualize:
+```{r plot-m10sm}
+plot(m10smooths, select = 1, shade = T, ylim=c(-10,10))
+abline(h=0)
+```
+
+With an increase of repetition number subjects show a shorter MT.
+
+By group?
+```{r m10smgroup, cache = T}
+summary(m10smoothsbyGroup <- bam(time2target ~ s(rep.no, k= 9) + s(rep.no, by = groupO, k= 9) + segO  + groupO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+No.
+
+
+Add trial number?
+```{r m11, cache = T}
+summary(m11 <- bam(time2target ~ s(trial.no) + s(rep.no, k= 9) + segO + groupO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+Yes.
+
+Add random smooth:
+```{r m12, cache = T}
+summary(m12 <- bam(time2target ~ s(trial.no) + s(rep.no, k= 9) + segO  + groupO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1) + s(trial.no, subj, bs='fs', m =1) + s(trial.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+Yes.
+
+
+By group?
+```{r m12group, cache = T}
+summary(m12group <- bam(time2target ~ s(trial.no) + s(trial.no, by = groupO) + s(rep.no, k= 9) + segO  + groupO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1) + s(trial.no, subj, bs='fs', m =1) + s(trial.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+No.
+
+Add block?
+```{r m13, cache = T}
+summary(m13 <- bam(time2target ~  block + s(trial.no) + s(rep.no, k= 9) + segO  + groupO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1) + s(trial.no, subj, bs='fs', m =1) + s(trial.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+No.
+
+Add slopes?
+```{r m13slopes, cache = T}
+summary(m13slopes <- bam(time2target ~ block + s(trial.no) + s(rep.no, k= 9) + segO  + groupO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(block, subj, bs='re') + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1) + s(trial.no, subj, bs='fs', m =1) + s(trial.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+Yes, but block still doesn't reach significance anymore.
+
+Per group?
+```{r m14, cache = T}
+summary(m14 <- bam(time2target ~ block + block:groupO + s(trial.no) + s(rep.no, k= 9) + segO  + groupO + s(ID) + s(pace)  + s(block, subj, bs='re') + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1) + s(trial.no, subj, bs='fs', m =1) + s(trial.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+Yes., but trial.no becomes non-significant.
+
+Visualize:
+```{r m14vis, cache = T}
+visreg(m14, "block", "groupO", gg=TRUE, ylab="Time to target")
+```
+
+Add gender?
+```{r m15, cache = T}
+summary(m15 <- bam(time2target ~ gender + block + block:groupO + s(rep.no, k= 9) + segO  + groupO + s(ID) + s(pace)  + s(block, subj, bs='re') + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+Yes.
+
+Per group?
+```{r m15Group, cache = T}
+summary(m15Group <- bam(time2target ~ gender + gender:groupO + block + block:groupO + s(rep.no, k= 9) + segO  + groupO + s(ID) + s(pace)  + s(block, subj, bs='re') + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+No.
+
+Add age?
+```{r m16, cache = T}
+
+summary(m16 <- bam(time2target ~ age + gender + block + block:groupO + s(rep.no, k= 9) + segO  + groupO + s(ID) + s(pace)  + s(block, subj, bs='re') + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+``` 
+No.
+
+Per group?
+```{r m16Group, cache = T}
+summary(m16Group <- bam(time2target ~ gender + age + age:groupO + block + block:groupO + s(rep.no, k= 9) + segO  + groupO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(block, subj, bs='re') + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+``` 
+No.
+
+Check once more if we need the interaction:
+```{r m18, cache = T}
+summary(m18 <- bam(time2target ~ gender + block + block:groupO+ s(rep.no, k= 9) + segO + groupO + s(ID) + s(pace) + ti(ID, pace) + s(block, subj, bs='re') + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+No.
+
+Check once more if we need separate smooths over ID for each group:
+```{r m19, cache = T}
+summary(m19 <- bam(time2target ~ gender + block + block:groupO + groupO + s(rep.no, k= 9) + segO + s(ID) + s(ID, by = groupO) + s(pace) + ti(ID, pace) + s(block, subj, bs='re') + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10))
+```
+No.
+
+
+# Check assumptions
+
+Check assumptions:
+```{r check-m19}
+gam.check(m15)
+```
+Right skewed.
+
+
+Use gamma distribution and check assumptions once more:
+```{r m17-log, cache = T}
+summary(m15log <- bam(time2target ~ gender + block + block:groupO + s(rep.no, k= 9) + segO  + groupO + s(ID) + s(pace) + s(block, subj, bs='re') + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10, family = Gamma(link=log)))
+
+gam.check(m15log)
+```
+Still doesn't look great.
+
+Trim the gamma model:
+```{r trim-m8_log2}
+df3 <- df[abs(scale(resid(m15log))) < 2.5, ] # trim model
+(1 - (nrow(df3))/nrow(df)) * 100
+```
+We now have a new trimmed dataframe: df3.
+
+Refit gamma model with trimmed data:
+```{r m17logTrim, cache = T}
+summary(m15log_Trim <- bam(time2target ~ gender + block + block:groupO + s(rep.no, k= 9) + segO  + groupO + s(ID) + s(pace) + s(block, subj, bs='re') + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df3, discrete = T, nthreads = 10, family = Gamma(link=log)))
+
+
+gam.check(m15log_Trim)
+```
+Improves, but block and gender do not reach significance anymore.
+
+Fit gamma model without block, gender and group, using the original data.
+```{r m16log_new, cache = T}
+summary(m16log <- bam(time2target ~  s(rep.no, k= 9) + segO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+No surprises.
+
+Trim the new model:
+```{r trim-m17-notrial}
+df4 <- df[abs(scale(resid(m16log))) < 2.5, ] # trim model
+(1 - (nrow(df4))/nrow(df)) * 100
+```
+We now have a new trimmed dataframe: df4.
+
+Fit gamma model without trial.no using the trimmed data:
+```{r m15log_newTrim2, cache = T}
+summary(m16log_newTrim2 <- bam(time2target ~  s(rep.no, k= 9) + segO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+No surprises.
+
+Check assumptions once more:
+```{r check-m15log_newTrim2}
+gam.check(m16log_newTrim2)
+```
+Looks OK.
+
+# Final plots
+
+Visualize:
+```{r visualize-m17log_noTrialNoTrim}
+plot_smooth(m16log_newTrim2, view="rep.no", rug=F, ylim=c(4.4,4.7), ylab = "MT (ms)", xlab = "repetition number")
+plot_smooth(m16log_newTrim2, view="ID", rug=F, ylab = "MT (ms)", xlab = "ID")
+plot_smooth(m16log_newTrim2, view="pace", rug=F, ylab = "MT (ms)", xlab = "pace (repetitions/second)")
+
+
+
+plot(m16log_newTrim2, select = 1, ylim=c(-0.03,0.03), shade  = T, ylab = "MT (ms)", xlab = "repetition number")
+abline(h=0)
+
+plot(m16log_newTrim2, select = 2, shade  = T, ylab = "MT (ms)", xlab = "ID")
+abline(h=0)
+
+plot(m16log_newTrim2, select = 3, shade  = T, ylab = "MT (ms)", xlab = "pace (repetitions/second)")
+abline(h=0)
+
+```
+MT decreases with an increase in repetition number, MT increases with an increase in ID and MT decreases with a higher pace.
+
+
+
+# PD severity
+
+## Together with typical
+
+Add years since diagnosis?
+```{r bothdiagnosis, cache = T}
+summary(mPD_1 <- bam(time2target ~  s(diagnosis) + s(rep.no, k= 9) + segO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+Yes.
+
+Visualize:
+```{r plotmPD1}
+plot(mPD_1, select = 1, rug = F)
+```
+
+
+UPDRS total score?
+```{r updrs, cache = T}
+summary(mPD_2 <- bam(time2target ~  s(total_UPDRS) + s(rep.no, k= 9) + segO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+No.
+
+Visualize:
+```{r plotmPD2}
+plot(mPD_2, select = 1, rug = F)
+```
+
+UPDRS motor score?
+```{r bothupdrs-motor, cache = T}
+summary(mPD_3 <- bam(time2target ~  s(motor_UPDRS) + s(rep.no, k= 9) + segO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+Yes.
+
+Visualize:
+```{r plotmPD3}
+plot(mPD_3, select = 1, rug = F)
+```
+
+Tremor score?
+```{r bothtremor, cache = T}
+summary(mPD_4 <- bam(time2target ~  s(tremor, k = 6) + s(rep.no, k= 9) + segO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+No.
+
+UPDRS akinetic score?
+```{r bothakinetic, cache = T}
+summary(mPD_5 <- bam(time2target ~  s(akinetic, k = 5) + s(rep.no, k= 9) + segO  + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+No.
+
+
+## Interaction with ID?
+
+Add years since diagnosis?
+```{r bothdiagnosis_ID, cache = T}
+summary(mPD_1te <- bam(time2target ~  s(rep.no, k= 9) + segO + te(ID, diagnosis) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+Yes.
+
+UPDRS total score?
+```{r updrs_ID, cache = T}
+summary(mPD_2te <- bam(time2target ~  s(rep.no, k= 9) + segO + te(ID, total_UPDRS) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+Yes.
+
+UPDRS motor score?
+```{r bothupdrs-motor_ID, cache = T}
+summary(mPD_3te <- bam(time2target ~  s(rep.no, k= 9) + segO + te(ID, motor_UPDRS) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+Yes.
+
+Tremor score?
+```{r bothtremor_ID, cache = T}
+summary(mPD_4te <- bam(time2target ~  s(rep.no, k= 9) + segO + te(ID, tremor) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+Yes.
+
+UPDRS akinetic score?
+```{r bothakinetic_ID, cache = T}
+summary(mPD_5te <- bam(time2target ~  s(rep.no, k= 9) + segO + te(ID, akinetic) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+Yes.
+
+## Separate main effect from interaction
+
+
+Add years since diagnosis?
+```{r bothdiagnosis_inter, cache = T}
+summary(mPD1ti <- bam(time2target ~  ti(diagnosis, ID) + s(diagnosis) + s(rep.no, k= 9) + segO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+No.
+
+UPDRS total score?
+```{r updrs_inter, cache = T}
+summary(mPD2ti <- bam(time2target ~  ti(total_UPDRS, ID) + s(total_UPDRS) + s(rep.no, k= 9) + segO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+No.
+
+UPDRS motor score?
+```{r bothupdrs-motor_inter, cache = T}
+summary(mPD3ti <- bam(time2target ~  ti(motor_UPDRS, ID) + s(motor_UPDRS) + s(rep.no, k= 9) + segO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+No.
+
+Tremor score?
+```{r bothtremor_inter, cache = T}
+summary(mPD4ti <- bam(time2target ~ ti(tremor, ID) +  s(tremor, k = 6) + s(rep.no, k= 9) + segO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+No.
+
+UPDRS akinetic score?
+```{r bothakinetic_inter, cache = T}
+summary(mPD5ti <- bam(time2target ~  ti(akinetic, ID) + s(akinetic, k = 5) + s(rep.no, k= 9) + segO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+Yes.
+
+Fit model without PD19 (= notorious outlier) and PD09.
+```{r bothakinetic_interminpd19, cache = T}
+ df5 <- df %>% subset(!subj == "PD19")
+ df5 <- df5 %>% subset(!subj == "PD09")
+
+
+summary(mPD5ti_minPD19 <- bam(time2target ~  ti(akinetic, ID, k = 4) + s(akinetic, k = 4) + s(rep.no, k= 9) + segO + s(ID) + s(pace) + s(pace, subj, bs='fs', m =1) + s(pace, subj, by = segO, bs='fs', m =1) + s(ID, subj, bs='fs', m =1) + s(ID, subj, by = segO, bs='fs', m =1) + s(rep.no, subj, bs='fs', m =1) + s(rep.no, subj, by = segO, bs='fs', m =1), data = df5, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+Still the same effect.
+
+Visualize:
+```{r plot-akinetic_interminpd19}
+fvisgam(mPD5ti_minPD19, view=c("akinetic","ID"), rm.ranef=TRUE)
+fadeRug(df5$akinetic, df5$ID)
+```
+
+Only the smooth without the intercept:
+```{r akinetic_interminpd19 without intercept}
+pvisgam(mPD5ti_minPD19, view=c("akinetic","ID"), select=1, fadeRUG=T)
+```
+
+Per subject:
+UPDRS akinetic score?
+```{r bothakinetic_subj, cache = T}
+summary(mPD5ti_subj <- bam(time2target ~  s(ID, by = subj) + s(akinetic, k = 5) + s(rep.no, k= 9) + segO + s(ID) + s(pace) + subj, data = df4, discrete = T, nthreads = 10, family = Gamma(link=log)))
+```
+Yes.
+
+Plot:
+```{r plot subj}
+plot(mPD5ti_subj, select = 1, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 2, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 3, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 4, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 5, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 6, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 7, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 8, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 9, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 5, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 11, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 12, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 13, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 14, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 15, shade = T, rug = F, ylim = c(-5,5))
+plot(mPD5ti_subj, select = 16, shade = T, rug = F, ylim = c(-5,5))
+
+plot(mPD5ti_subj, select = 24, shade = T, rug = F, ylim = c(-5,5)) # pd02
+plot(mPD5ti_subj, select = 29, shade = T, rug = F, ylim = c(-5,5)) # pd09
+plot(mPD5ti_subj, select = 33, shade = T, rug = F, ylim = c(-5,5)) # pd14
+plot(mPD5ti_subj, select = 34, shade = T, rug = F, ylim = c(-5,5)) # pd15
+plot(mPD5ti_subj, select = 38, shade = T, rug = F, ylim = c(-5,5)) # pd19
+plot(mPD5ti_subj, select = 42, shade = T, rug = F, ylim = c(-5,5)) # pd25
+
+
+
+
+```
+
