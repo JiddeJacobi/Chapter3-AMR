@@ -64,7 +64,7 @@ Get rid of outlier:
 
 Get rid of duplicate rows and sort data:
 ```{r remove-rows}
-df <- df %>% distinct(temp_var, spat_var_bivariate, subj, trial.no, mean.syl.dur, mean.speed2target, mean.gest.dur, group, mean.time2target, mean.dist2target, mean.stiffness2target, mean.time.between.targets, pace, block, gender, age, dialect, seg, gesture.type, diagnosis, total_UPDRS, motor_UPDRS, tremor, akinetic)
+df <- df %>% distinct(temp_var, spat_var_bivariate, subj, trial.no, mean.syl.dur, mean.speed2target, mean.gest.dur, group, mean.time2target, mean.dist2target, mean.stiffness2target, mean.peakvel2target, mean.time.between.targets, mean.dur.accphase, mean.dur.decphase, pace, block, gender, age, dialect, seg, gesture.type, diagnosis, total_UPDRS, motor_UPDRS, tremor, akinetic)
 df <- df[order(df$subj, df$trial),]
 ```
 
@@ -108,7 +108,7 @@ df$IsPD <- with(df,  ifelse(group=="PD", 1, 0)) # create binary predictor
 
 Examine correlations:
 ```{r correlations}
-dfcor <- df %>% select(mean.speed2target, mean.gest.dur, mean.time2target, mean.dist2target, mean.stiffness2target, pace)
+dfcor <- df %>% select(mean.speed2target, mean.gest.dur,  mean.peakvel2target,mean.time2target, mean.dist2target, mean.stiffness2target, pace)
 r <- cor(dfcor, use="complete.obs")
 
 ggcorrplot(r, 
@@ -119,6 +119,11 @@ ggcorrplot(r,
 
 Some plots:
 ```{r plotdensity}
+dodge = .5
+dodge <- position_dodge(width = 0.9)
+ggplot(df, aes(x=group, y=temp_var, fill=group)) + geom_violin(trim=FALSE) + labs(title = "", y = "temporal variability") + geom_boxplot(width=.2, position = dodge) + scale_fill_manual(values=c("#ffbfbf", "#bfd8bf")) + theme_bw()
+
+
 ggplot(df, aes(x=temp_var, fill = group)) + 
   geom_density(size = 0, alpha=0.6) + theme_classic() +labs(x="temporal variability") + scale_fill_manual(values=c("#e37249", "#66916a"))
 
@@ -144,7 +149,7 @@ summary(m0 <- bam(temp_var ~ s(subj,bs='re'), data = df, method = "ML"))
 
 Add group?
 ```{r hypo-m1, cache = TRUE}
-summary(m1 <- bam(temp_var ~ group + s(subj,bs='re'), data = df, method = "ML"))
+summary(m1 <- bam(temp_var ~ groupO + s(subj,bs='re'), data = df, method = "ML"))
 compareML(m0, m1)
 ```
 Yes, typical speakers are more variable in comparison to PD speakers.
@@ -152,7 +157,7 @@ Yes, typical speakers are more variable in comparison to PD speakers.
 
 Final model:
 ```{r mhyp, cache = TRUE}
-summary(mFinalHypothesis <- bam(temp_var ~ group + s(subj,bs='re'), data = df))
+summary(mFinalHypothesis <- bam(temp_var ~ groupO + s(subj,bs='re'), data = df))
 ```
 
 
@@ -164,7 +169,7 @@ gam.check(mFinalHypothesis) # not great
 
 Gamma distribution:
 ```{r hypogamma, cache = TRUE}
-summary(mFinalHypothesis_gamma <- bam(temp_var ~ group + s(subj,bs='re'), data = df, method = "fREML", family =Gamma(link=log)))
+summary(mFinalHypothesis_gamma <- bam(temp_var ~ groupO + s(subj,bs='re'), data = df, method = "fREML", family =Gamma(link=log)))
 ```
 
 
@@ -184,14 +189,14 @@ df2 <- df[abs(scale(resid(mFinalHypothesis_gamma))) < 2.5, ] # trim model
 
 Check:
 ```{r checkhypo2, cache = TRUE}
-summary(mFinalHypothesis_gamma2 <- bam(temp_var ~ group + s(subj,bs='re'), data = df2, method = "fREML", family =Gamma(link=log)))
+summary(mFinalHypothesis_gamma2 <- bam(temp_var ~ groupO + s(subj,bs='re'), data = df2, method = "fREML", family =Gamma(link=log)))
 gam.check(mFinalHypothesis_gamma2)
 ```
 Better.
 
 Fit model with ML for subsequent comparisons:
 ```{r hypoML, cache = TRUE}
-summary(mFinalHypothesis_gamma2ML <- bam(temp_var ~ group + s(subj,bs='re'), data = df, method = "ML", family =Gamma(link=log)))
+summary(mFinalHypothesis_gamma2ML <- bam(temp_var ~ groupO + s(subj,bs='re'), data = df, method = "ML", family =Gamma(link=log)))
 ```
 
 
@@ -199,12 +204,16 @@ summary(mFinalHypothesis_gamma2ML <- bam(temp_var ~ group + s(subj,bs='re'), dat
 
 ## Compare different predictors
 ```{r compare-predic, cache = TRUE}
-summary(mPace <- bam(temp_var ~ s(pace) + group + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
-summary(mSpeed <- bam(temp_var ~ s(mean.speed2target) + group + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
-summary(mStiffness <- bam(temp_var ~ s(mean.stiffness2target) + group + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
-summary(mDist2target <- bam(temp_var ~ s(mean.dist2target) + group + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
-summary(mTime2target <- bam(temp_var ~ s(mean.time2target) + group + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
-summary(mGestdur <- bam(temp_var ~ s(mean.gest.dur) + group + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
+summary(mPace <- bam(temp_var ~ s(pace) + groupO + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
+summary(mSpeed <- bam(temp_var ~ s(mean.speed2target) + groupO + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
+summary(mStiffness <- bam(temp_var ~ s(mean.stiffness2target) + groupO + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
+summary(mDist2target <- bam(temp_var ~ s(mean.dist2target) + groupO + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
+summary(mTime2target <- bam(temp_var ~ s(mean.time2target) + groupO + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
+summary(mGestdur <- bam(temp_var ~ s(mean.gest.dur) + groupO + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
+summary(mPeakvel <- bam(temp_var ~ s(mean.peakvel2target) + groupO + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
+summary(mAccphase <- bam(temp_var ~ s(mean.dur.accphase) + groupO + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
+summary(mDecphase <- bam(temp_var ~ s(mean.dur.decphase) + groupO + s(subj,bs='re'), data = df, family =Gamma(link=log)), select = T, discrete = T, nthreads = 10)
+
 
 
 AIC(mPace)
@@ -213,12 +222,16 @@ AIC(mStiffness)
 AIC(mDist2target)
 AIC(mTime2target)
 AIC(mGestdur)
+AIC(mPeakvel)
+AIC(mAccphase)
+AIC(mDecphase)
 ```
 Speed has the lowest AIC.
 
+
 Check if the model has improved
 ```{r new-model, cache = TRUE}
-summary(mSpeedML <- bam(temp_var ~ s(mean.speed2target) + group + s(subj,bs='re'), data = df, family = Gamma(link=log), method = "ML"))
+summary(mSpeedML <- bam(temp_var ~ s(mean.speed2target) + groupO + s(subj,bs='re'), data = df, family = Gamma(link=log), method = "ML"))
 compareML(mFinalHypothesis_gamma2ML, mSpeedML)
 ```
 Yes.
@@ -231,15 +244,25 @@ Variable pattern, note that most of the data is between 0 and 0.15.
 
 Add random smooth over speed:
 ```{r m1, cache = TRUE}
-summary(m1 <- bam(temp_var ~ s(mean.speed2target) + group + s(mean.speed2target, subj, bs = "fs", m=1, k = 11), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(m1 <- bam(temp_var ~ s(mean.speed2target) + groupO + s(mean.speed2target, subj, bs = "fs", m=1, k = 11), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
 Yes.
 
+Add seg?
+```{r seg, cache=T}
+summary(m1ML <- bam(temp_var ~ s(mean.speed2target) + groupO + s(mean.speed2target, subj, bs = "fs", m=1, k = 11), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
+
+summary(m1seg <- bam(temp_var ~ segO + s(mean.speed2target) + groupO + s(mean.speed2target, subj, bs = "fs", m=1, k = 11), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+compareML(m1ML, m1seg)
+```
+No.
+
 Add random slopes per seg over speed?
 ```{r m2, cache = TRUE}
-summary(m2 <- bam(temp_var ~ segO + s(mean.speed2target) + group +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(m2 <- bam(temp_var ~ segO + s(mean.speed2target) + groupO +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
-Yes.
+Yes, so we do need seg.
 
 Plot smooths:
 ```{r plot-m2, cache = TRUE}
@@ -253,13 +276,15 @@ summary(m3 <- bam(temp_var ~ segO + s(mean.speed2target) + s(mean.speed2target, 
 ```
 No.
 
-
-
-Add pace?
+Add pace? (fitting with discrete = T, all smooths considered as random effects)
 ```{r m4, cache = TRUE}
-summary(m4 <- bam(temp_var ~ segO + s(pace) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(m.alt <- bam(temp_var ~ segO + s(mean.speed2target) + groupO + s(mean.gest.dur) + s(mean.gest.dur, by = groupO) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4)+  s(mean.gest.dur, subj, bs = "fs", m=1, k = 4) + s(mean.gest.dur, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), select = T, discrete = T, nthreads = 10))
+
+summary(m.alt2 <- bam(temp_var ~ segO + s(mean.speed2target) + groupO + s(mean.gest.dur) + s(mean.gest.dur, by = groupO) + s(pace) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4)+  s(mean.gest.dur, subj, bs = "fs", m=1, k = 4) + s(mean.gest.dur, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), select = T, discrete = T, nthreads = 10))
+
+compareML(m.alt, m.alt2)
 ```
-No.
+Yes.
 
 Add random smooth per seg over pace?
 ```{r m4Random, cache = TRUE}
@@ -278,70 +303,60 @@ Plot smooths:
 ```{r plot-m5, cache = TRUE}
 plot(m5, select = 1, shade = T, ylab = "temporal variabilty", rug=F)
 plot(m5, select = 2, shade = T, ylab = "temporal variabilty", rug=F)
+``` 
+
+
+
+Check whether we can add another predictor in addition to speed2target (including appropriate random smooths, compare based on R-squared)
+```{r m14, cache = TRUE}
+summary(m5gest.dur <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.gest.dur) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
+summary(m5accphase <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.dur.accphase) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
+summary(m5decphase <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.dur.decphase) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
+summary(m5time2target <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.time2target) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
+
+summary(m5displacement <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.dist2target) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
+
+summary(m5peakvel <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.peakvel2target) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
+summary(m5stiffnes <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.stiffness2target) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
 ```
 
+Stifness2target is sign.
 
-Add spatial variability?
-```{r m8, cache = TRUE}
-summary(m6 <- bam(temp_var ~ s(spat_var_bivariate) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4)+ s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+Check if there are group difference:
+```{r m15, cache = TRUE}
+summary(m6gest.dur <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.gest.dur) + s(mean.gest.dur, by = groupO) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
+summary(m6accphase <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.dur.accphase) + s(mean.dur.accphase, by = groupO) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
+summary(m6decphase <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.dur.decphase) +  s(mean.dur.decphase, by = groupO) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
+summary(m6time2target <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.time2target) + s(mean.time2target, by = groupO) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
+summary(m6displacement <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.dist2target) + s(mean.dist2target, by = groupO) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
+summary(m6peakvel <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.peakvel2target, by = groupO) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+
+summary(m6stiffnes <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.stiffness2target) + s(mean.stiffness2target, by = groupO) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
-Yes.
+No significant group differences. 
+
+Check if we indeed need to add stiffness (using select = T):
+```{r}
+summary(m5.alt <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), select = T, discrete = T, nthreads = 10))
 
 
-Add random smooth by seg:
-```{r m10, cache = TRUE}
-summary(m7 <- bam(temp_var ~ s(spat_var_bivariate) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(m5stiffnes.alt <- bam(temp_var ~ segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(mean.stiffness2target) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), select = T, discrete = T, nthreads = 10))
+
+compareML(m5.alt, m5stiffnes.alt)
 ```
-Still significant.
-
-Separate for each group?
-```{r m9, cache = TRUE}
-summary(m8 <- bam(temp_var ~ s(spat_var_bivariate) + s(spat_var_bivariate, by = groupO) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
-```
-No.
-
-What if we split the smooth over spat_var separate for segO?
-```{r m11, cache = TRUE}
-summary(m11 <- bam(temp_var ~ s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
-```
-Yes, /p/ shows a different pattern for /t/ in the PD group.
-
-Visualize:
-```{r plot-m11}
-plot(m11, select = 1, main = "temporal variation /p/ PD", ylab = "spatial variability", shade = T)
-abline(h=0)
-
-plot(m11, select = 2, main = "temporal variation /k/ PD (difference with /p/)", ylab = "spatial variability", shade = T)
-abline(h=0)
-
-plot(m11, select = 3, main = "temporal variation /t/ PD (difference with /p/)", ylab = "spatial variability", shade = T)
-abline(h=0)
-
-plot(m11, select = 4, main = "temporal variation typical (difference with PD)", ylab = "spatial variability", shade = T)
-abline(h=0)
-```
-
-What about typicals?
-```{r m12, cache = TRUE}
-summary(m12 <- bam(temp_var ~ s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + typicalK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(spat_var_bivariate, by = typicalK_O) + s(pace) + s(pace, by = groupO) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
-```
-For typicals, K does not differ from TK, so we take K out.
-
-New model:
-```{r m13, cache = TRUE}
-summary(m13 <- bam(temp_var ~ s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(pace) + s(pace, by = groupO) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
-```
-Visualize:
-```{r plot-m13}
-plot(m13, select = 4, main = "temporal variation /p/ typical (difference to PD /p/)", ylab = "temporal variability", shade = T)
-abline(0,0)
-
-plot(m13, select = 5, main = "temporal variation /t/ and /k/ typical (difference to PD /t/ and /k/)", ylab = "temporal variability", shade = T)
-abline(0,0)
-```
-
-/p/ is comparable, but /t/ and /k/ show a steeper slope.
-
+We don't actually need it.
 
 
 Add trial.no
@@ -350,65 +365,67 @@ summary(m14 <- bam(temp_var ~  s(trial.no) +s(spat_var_bivariate) + s(spat_var_b
 ```
 Yes.
 
+Add trial.no (using select = T):
+```{r m6, cache = TRUE}
+summary(m6.alt <- bam(temp_var ~  segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), select = T, discrete = T, nthreads = 10))
+
+summary(m6.alt2 <- bam(temp_var ~  s(trial.no) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), select = T, discrete = T, nthreads = 10))
+compareML(m6.alt, m6.alt2)
+```
+Yes.
+
 Add random smooths over trial.no per seg?
 ```{r m16TrialRandom, cache = TRUE}
-summary(m15 <- bam(temp_var ~  s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(pace) + s(pace, by = groupO) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(m7 <- bam(temp_var ~  s(trial.no) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
 Yes.
 
 Plot:
 ```{r plot m15}
-plot_smooth(m15, view = "trial.no", ylab="temporal variability", xlab = "trial")
+plot_smooth(m7, view = "trial.no", ylab="temporal variability", xlab = "trial")
 ```
 
 
 Separate for group?
 ```{r m16group, cache = TRUE}
-summary(m16 <- bam(temp_var ~  s(trial.no) +s(trial.no, by = groupO) + s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(pace) + s(pace, by = groupO) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(m8 <- bam(temp_var ~  s(trial.no) + s(trial.no, by = groupO) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
 No.
 
 Add block (first or second)?
 ```{r m17, cache = TRUE}
-summary(m17 <- bam(temp_var ~  block + s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(pace) + s(pace, by = groupO) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
-
+summary(m9 <- bam(temp_var ~  block + s(trial.no) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
 No.
 
-Add random slopes:
-```{r m17Slopes, cache = TRUE}
-summary(m18 <- bam(temp_var ~  block + s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(pace) + s(pace, by = groupO) + s(block, subj, bs='re') + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
-```
-Yes.
-
 Per group?
 ```{r m17Group, cache = TRUE}
-summary(m19 <- bam(temp_var ~  block + block:groupO + s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(pace) + s(pace, by = groupO) + s(block, subj, bs='re') + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(m10 <- bam(temp_var ~  block + block:groupO + s(trial.no) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
 No, so we can take block out.
 
 
 Add gender?
 ```{r m18, cache = TRUE}
-summary(m20 <- bam(temp_var ~  gender + s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(pace) + s(pace, by = groupO) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(m11 <- bam(temp_var ~  gender + s(trial.no) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
 No.
 
 Per group?
 ```{r m18Group, cache = TRUE}
-summary(m20 <- bam(temp_var ~  gender + gender:groupO + s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(pace) + s(pace, by = groupO) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(m12 <- bam(temp_var ~  gender + gender:groupO + s(trial.no) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
 No difference.
 
 Age?
 ```{r m20, cache = TRUE}
-summary(m21 <- bam(temp_var ~  s(age) + s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(pace) + s(pace, by = groupO) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(m13 <- bam(temp_var ~  s(age) + s(trial.no) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
 No.
 
 Per group?
 ```{r m19Group, cache = TRUE}
-summary(m22 <- bam(temp_var ~  s(age) + s(age, by = groupO) + s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(pace) + s(pace, by = groupO) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(m14 <- bam(temp_var ~  s(age) + s(age, by = groupO) + s(trial.no) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
 No.
 
@@ -416,7 +433,7 @@ No.
 
 Final model, fit with fREML:
 ```{r fREML-expl}
-mFinalExpl <- m15
+mFinalExpl <- m7
 ```
 
 ## Check assumptions
@@ -434,65 +451,117 @@ We throw out 1.51% of the data.
 
 Fit using trimmed data:
 ```{r trimfit-expl, cache = TRUE}
-summary(mFinalExpldf2 <- bam(temp_var ~  s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(pace) + s(pace, by = groupO) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df2, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(m7trim <- bam(temp_var ~  s(trial.no) + segO + s(pace) + s(pace, by = groupO) + groupO + s(mean.speed2target) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4), data = df2, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
-Pace difference by group doesn't reach significance anymore, so we take this out.
+Comparable.
 
-Without pace using original data:
-```{r minpace}
-summary(mFinalExpl2 <- bam(temp_var ~  s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df, family =Gamma(link=log), discrete = T, nthreads = 10))
-```
-
-Trim:
-```{r minpacecit}
-df3 <- df[abs(scale(resid(mFinalExpl2))) < 2.5, ] # trim model
-(1 - (nrow(df3))/nrow(df)) * 100
-```
-
-Refit using trimmed data:
-```{r minpacetrim}
-summary(mFinalExpl2trim <- bam(temp_var ~  s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO  + typicalP_O + typicalTK_O + s(spat_var_bivariate, by = typicalP_O) + s(spat_var_bivariate, by = typicalTK_O) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df3, family =Gamma(link=log), discrete = T, nthreads = 10))
-```
-Same pattern
 
 Check assumptions:
 ```{r check-trimmed-model3}
-gam.check(mFinalExpl2trim)
+gam.check(m7trim)
 ```
 Looks allright.
-
-Latex code:
-```{r latex}
-gamtabs(mFinalExpl2trim)
-```
 
 
 ## Final Plots
 
 ```{r m13inter, cache = TRUE}
-plot_smooth(mFinalExpl2trim, view = "trial.no", rug= F, xlab = "trial", ylab = "temporal variability")
-plot_smooth(mFinalExpl2trim, view = "mean.speed2target", rug= F, xlab = "speed (mm/ms)", ylab = "temporal variability")
+plot(m7trim, select = 1, shade = T, rug= F, xlab = "trial number", ylab = "temporal variability", ylim = c(-0.3,0.3))
+abline(h=0)
 
+plot(m7trim, select = 2, shade = T)
+abline(h=0)
 
-df3$SegGroup <- interaction(df3$seg, df3$group)
+plot(m7trim, select = 3, shade = T, rug= F)
+abline(h=0)
 
-summary(mFinalExploratorydf2inter <- bam(temp_var ~  s(trial.no) +s(spat_var_bivariate) + SegGroup + s(spat_var_bivariate, by = SegGroup) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = df3, family =Gamma(link=log), discrete = T, nthreads = 10))
+plot(m7trim, select = 4, shade = T, rug= F, xlab = "speed (m/s)", ylab = "temporal variability")
+abline(h=0)
 
-
-plot_smooth(mFinalExploratorydf2inter, view = "spat_var_bivariate", cond=list(SegGroup="P.PD"), xlab = "spatial varibility", ylab = "temporal variability", xlim=c(0,2), ylim=c(1,4), rug=F)
-
-plot_smooth(mFinalExploratorydf2inter, view = "spat_var_bivariate", cond=list(SegGroup="T.PD"), xlab = "spatial varibility", ylab = "temporal variability", xlim=c(0,2), ylim=c(1,4), rug=F)
-
-plot_smooth(mFinalExploratorydf2inter, view = "spat_var_bivariate", cond=list(SegGroup="K.PD"), xlab = "spatial varibility", ylab = "temporal variability", xlim=c(0,2), ylim=c(1,4), rug=F)
-
-plot_smooth(mFinalExploratorydf2inter, view = "spat_var_bivariate", cond=list(SegGroup="P.typical"), xlab = "spatiall varibility", ylab = "temporal variability", xlim=c(0,2), ylim=c(1,4), rug=F)
-
-plot_smooth(mFinalExploratorydf2inter, view = "spat_var_bivariate", cond=list(SegGroup="T.typical"), xlab = "spatial varibility", ylab = "temporal variability", xlim=c(0,2), ylim=c(1,4), rug=F)
-
-plot_smooth(mFinalExploratorydf2inter, view = "spat_var_bivariate", cond=list(SegGroup="K.typical"), xlab = "spatial varibility", ylab = "temporal variability", xlim=c(0,2), ylim=c(1,4), rug=F)
+plot_smooth(m7trim, view="pace", plot_all="groupO", rm.ranef=TRUE, col=c("red", "darkgreen"), ylab = "temporal variability",  xlab = "pace (repetitions/s)", rug = F)
 ```
 
 PD patients show less of a downward slope between temp_var and spatial variability when it comes to lingual sounds (/t/, /k/).
+
+
+
+Latex table function:
+```{r}
+gamtabs2 <- function (model, caption = " ", label = "tab.gam", 
+    pnames = NA, snames = NA, ptab = NA, stab = NA, ...) 
+{
+    if (!requireNamespace("xtable", quietly = TRUE)) {
+        stop("Package 'xtable' needed for this function to work. Please install it.", 
+            call. = FALSE)
+    }
+    sum.gam <- model
+    if (!inherits(model, "summary.gam")) {
+        sum.gam <- summary(model)
+    }
+    if (is.na(ptab[1])) {
+        ptab = as.data.frame(sum.gam$p.table, stringsAsFactors = FALSE)
+    }
+    if (is.na(stab[1])) {
+        stab = as.data.frame(sum.gam$s.table, stringsAsFactors = FALSE)
+    }
+    if (!is.na(pnames[1])) {
+        rownames(ptab) = pnames
+    }
+    if (!is.na(snames[1])) {
+        rownames(stab) = snames
+    }
+    colnames(ptab)[4] = "p-value"
+    colnames(ptab)[3] = "t-value"
+    ptab.cnames = colnames(ptab)
+    stab.cnames = colnames(stab)
+    stab.cnames[3] = "F-value"
+    colnames(ptab) = c("A", "B", "C", "D")
+    if (ncol(stab) != 0) {
+        colnames(stab) = colnames(ptab)
+    }
+    tab = rbind(ptab, stab)
+    colnames(tab) = ptab.cnames
+    tab = round(tab, 4)
+    m = data.frame(matrix(0, nrow(tab), ncol(tab)), stringsAsFactors = FALSE)
+    for (i in 1:nrow(tab)) {
+        for (j in 1:4) {
+            if ((j == 4) & (tab[i, j] < 1e-03)) {
+                m[i, j] = "< 0.001"
+            }
+            else {
+                m[i, j] = sprintf("%3.3f", tab[i, j])
+            }
+        }
+    }
+    colnames(m) = colnames(tab)
+    rownames(m) = rownames(tab)
+    tab = m
+    tab2 = rbind(c(ptab.cnames), tab[1:nrow(ptab), ])
+    if (nrow(stab) > 0) {
+        tab2 = rbind(tab2, c(stab.cnames), tab[(nrow(ptab) + 
+            1):nrow(tab), ])
+    }
+    if (nrow(stab)) {
+        rownames(tab2)[(nrow(ptab) + 2)] = "B. smooth terms"
+    }
+    rownames(tab2)[1] = "A. parametric coefficients"
+    for (i in 1:nrow(tab2)) {
+        if (tab2[i, 4] == "0") 
+            tab2[i, 4] = "< 0.0001"
+        if (length(grep("\\.", tab2[i, 2])) == 0) 
+            tab2[i, 2] = paste(tab2[i, 2], ".0000", sep = "")
+    }
+    print(xtable::xtable(tab2, caption = caption, label = label, 
+        align = "lrrrr"), include.colnames = FALSE, hline.after = c(0, 
+        (nrow(ptab) + 1), nrow(tab2)), ...)
+}
+```
+
+Latex table:
+```{r}
+options(xtable.comment = FALSE)
+gamtabs2(m7trim)
+```
 
 # PD severity
 
@@ -504,27 +573,31 @@ dfPD <- subset(df, group == "PD")
 
 Add years since diagnosis?
 ```{r mPD1, cache = TRUE}
-summary(mPD1 <- bam(temp_var ~  s(diagnosis) + s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = dfPD, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(mPD1 <- bam(temp_var ~  s(diagnosis) + s(trial.no) + segO + s(pace) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = dfPD, family =Gamma(link=log), discrete = T, nthreads = 10))
+
 ```
 No.
 
 UPDRS total score?
 ```{r mPD2, cache = TRUE}
-summary(mPD2 <- bam(temp_var ~  s(total_UPDRS) + s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = dfPD, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(mPD2 <- bam(temp_var ~  s(total_UPDRS) + s(trial.no) + segO + s(pace) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = dfPD, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
 No.
 
 UPDRS motor score?
 ```{r mPD3, cache = TRUE}
-summary(mPD3 <- bam(temp_var ~  s(motor_UPDRS) + s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = dfPD, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(mPD3 <- bam(temp_var ~   s(motor_UPDRS) + s(trial.no) + segO + s(pace) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = dfPD, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
 No.
 
 
 Tremor score?
 ```{r mPD4, cache = TRUE}
-summary(mPD4 <- bam(temp_var ~  s(tremor, k = 6) + s(trial.no) +s(spat_var_bivariate) + s(spat_var_bivariate, by = segO) + segO + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, bs = "fs", m=1, k = 4) + s(spat_var_bivariate, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = dfPD, family =Gamma(link=log), discrete = T, nthreads = 10))
+summary(mPD4 <- bam(temp_var ~   s(tremor, k = 6) + s(trial.no) + segO + s(pace) + s(mean.speed2target) +  s(mean.speed2target, subj, bs = "fs", m=1, k = 4) + s(mean.speed2target, subj, by = segO, bs = "fs", m=1, k = 4) +  s(pace, subj, bs = "fs", m=1, k = 4) + s(pace, subj, by = segO, bs = "fs", m=1, k = 4) + s(trial.no, subj, bs = "fs", m=1, k = 4) + s(trial.no, subj, by = segO, bs = "fs", m=1, k = 4), data = dfPD, family =Gamma(link=log), discrete = T, nthreads = 10))
 ```
 No.
 
-
+# Session info
+```{r session}
+sessionInfo()
+```

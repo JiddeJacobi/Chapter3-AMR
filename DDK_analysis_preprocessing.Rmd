@@ -143,6 +143,7 @@ df$dur <- df$tGOFFS-df$tGONS
 # duration of acceleration phase
 df$dur.accphase <- df$tPVEL-df$tGONS
 
+  
 df <- df %>%
     group_by(subj, trial) %>%
     mutate(syl.dur = tGONS-lag(tGONS)) %>%
@@ -265,6 +266,8 @@ df <- df %>%
   mutate(mean.speed2target = mean(speed2target, na.rm = T)) %>%
   mutate(mean.stiffness2target = mean(stiffness2target, na.rm = T)) %>%
   mutate(mean.dist2centroid = mean(dist2centroid, na.rm = T)) %>%
+  mutate(mean.dur.accphase = mean(dur.accphase, na.rm = T))  %>%
+  mutate(mean.dur.decphase = mean(dur.decphase, na.rm = T)) %>%
   ungroup() 
 ```
 
@@ -469,25 +472,25 @@ p  <- ggplot(subset(df,  subj == "PD17" & trial == "13301")) + geom_point(aes(x=
 p + geom_point(aes(x=xMean, y=zMean), color="red", size=5)
 
 
-dfPD17 <- subset(df, subj == "PD17" & trial == "13301")
-ggplot() + 
-geom_point(data=dfPD17, aes(x=xMAXC, y=zMAXC)) + 
-geom_point(data=dfPD17, aes(x=xMean, y=zMean), color='red', size=5) +
-  geom_point(data = palPD17, aes(x=x, y=y))
+#dfPD17 <- subset(df, subj == "PD17" & trial == "13301")
+#ggplot() + 
+#geom_point(data=dfPD17, aes(x=xMAXC, y=zMAXC)) + 
+#geom_point(data=dfPD17, aes(x=xMean, y=zMean), color='red', size=5) +
+#  geom_point(data = palPD17, aes(x=x, y=y))
 
-dfPD06 <- subset(df, subj == "PD06" & trial == "13401")
-ggplot() + 
-geom_point(data=dfPD06, aes(x=xMAXC, y=zMAXC)) + 
-geom_point(data=dfPD06, aes(x=xMean, y=zMean), color='red', size=5) +
-  geom_point(data = palPD17, aes(x=x, y=y))
+#dfPD06 <- subset(df, subj == "PD06" & trial == "13401")
+#ggplot() + 
+#geom_point(data=dfPD06, aes(x=xMAXC, y=zMAXC)) + 
+#geom_point(data=dfPD06, aes(x=xMean, y=zMean), color='red', size=5) +
+#  geom_point(data = palPD17, aes(x=x, y=y))
 
 
-setwd("C:/Users/45598770/Desktop/analyse")
+# setwd("C:/Users/45598770/Desktop/analyse")
 
-palPD17 <- read.csv("pal_PD17_R.txt")
-colnames(palPD17) <- c("x", "del", "y")
-palPD17 <- palPD17 %>% select(x, y)
-ggplot(palPD17, aes(x=x, y=y)) + geom_point()
+# palPD17 <- read.csv("pal_PD17_R.txt")
+# colnames(palPD17) <- c("x", "del", "y")
+# palPD17 <- palPD17 %>% select(x, y)
+# ggplot(palPD17, aes(x=x, y=y)) + geom_point()
 
 ```
 
